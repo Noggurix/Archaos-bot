@@ -1,27 +1,30 @@
 import os
+import json
 import sqlite3
 import discord
 import asyncio
+import aiohttp
+import re
 from dotenv import load_dotenv
 from discord.ext import commands
 
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
+DICE_url = os.getenv('DICE_url')
 
 intents = discord.Intents.default()
 intents.message_content = True
 
-class MyClient(commands.Bot):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs, command_prefix="/", intents=intents)
+with open('emojis.json') as f:
+    config = json.load(f)
 
-    async def setup_hook(self):
-        await self.tree.sync()
+custom_emojis = config["custom_emojis"]
 
-    async def on_ready(self):
-        print(f'Bot {self.user.name} has connected to Discord!')
+bot = commands.Bot(command_prefix="/", intents=intents)
 
-bot = MyClient()
+@bot.event
+async def on_ready():
+    print(f'Bot {bot.user.name} has connected to Discord!')
 
 def setup_db():
     with sqlite3.connect('players.db') as conn:
@@ -37,8 +40,7 @@ def execute_db(query, params=()):
         return cur.fetchall()
 
 def add_player(user_id, name, level, hp, race, char_class):
-    execute_db('REPLACE INTO players (user_id, name, level, hp, race, class) VALUES (?, ?, ?, ?, ?, ?)',
-               (user_id, name, level, hp, race, char_class))
+    execute_db('REPLACE INTO players (user_id, name, level, hp, race, class) VALUES (?, ?, ?, ?, ?, ?)', (user_id, name, level, hp, race, char_class))
 
 def get_player(user_id):
     result = execute_db('SELECT name, level, hp, race, class FROM players WHERE user_id = ?', (user_id,))
@@ -50,78 +52,98 @@ def delete_player(user_id):
 races = {'Humano': 100, 'Elfo': 80, 'Fada': 60, 'Gigante': 150, 'Dragonida': 120, 'Vampiro': 90, 'Bruxa': 70}
 classes = {'Guerreiro': 30, 'Mago': 10, 'Arqueiro': 20, 'Ladino': 15, 'Paladino': 25}
 
-@bot.tree.command(name='criar', description='Cria um novo personagem')
+@bot.slash_command(name='create', description='Cria um novo personagem')
 async def criar(interaction: discord.Interaction):
     await interaction.response.send_message("Qual vai ser o nome do seu personagem?")
 
-    def check(m):
-        return m.author == interaction.user and m.channel == interaction.channel
+    if interaction.user and interaction.channel:
+        try:
+            msg = await bot.wait_for('message', timeout=30.0)
+            name = msg.content
+        except asyncio.TimeoutError:
+            await interaction.followup.send('Você demorou muito tempo para responder!')
     
-    try:
-        msg = await bot.wait_for('message', check=check, timeout=60.0)
-        name = msg.content
-    except asyncio.TimeoutError:
-        await interaction.followup.send('Você demorou muito tempo para responder!')
-        return
+    embed = discord.Embed(title=name)
+    embed.add_field(name="Raça", value="Não Selecionada", inline=True)
+    embed.add_field(name="Classe", value="Não Selecionada", inline=True)
+    view = discord.ui.View()
+    select_race = discord.ui.Select(placeholder="Raça", options=[discord.SelectOption(label=race, value=race) for race in races], custom_id='race')
+    view.add_item(select_race)
 
-    def create_select_menu(select_type, options):
-        return discord.ui.Select(
-            placeholder=f"Escolha sua {select_type}",
-            options=[discord.SelectOption(label=opt, value=opt) for opt in options.keys()]
-        )
-
-    async def select_callback(interaction, select_type):
-        await interaction.response.defer()
-        choice = interaction.data['values'][0]
-        if select_type == "Raça":
-            race = choice
+    async def select_callback(interaction: discord.Interaction):
+        select_type = interaction.data['custom_id']
+        if select_type == "race":
+            race = interaction.data['values'][0]
             embed.set_field_at(0, name="Raça", value=race, inline=True)
-            select_class = create_select_menu("Classe", classes)
-            select_class.callback = lambda i: asyncio.create_task(select_callback(i, "Classe"))
-            embed.description = "Selecione uma classe"
+            select_class = discord.ui.Select(placeholder="Classe", options=[discord.SelectOption(label=cls, value=cls) for cls in classes], custom_id='class')
+            select_class.callback = select_callback
             view.clear_items()
             view.add_item(select_class)
-            await interaction.message.edit(embed=embed, view=view)
-        elif select_type == "Classe":
-            char_class = choice
+        elif select_type == "class":
+            char_class = interaction.data['values'][0]
             race = embed.fields[0].value
             embed.set_field_at(1, name="Classe", value=char_class, inline=True)
             embed.title = "Ficha criada!"
-            embed.description = f"**{name}**"
+            embed.description = f"### {name}"
             level = 1
             hp = races[race] + classes[char_class]
             add_player(interaction.user.id, name, level, hp, race, char_class)
             view.clear_items()
-            await interaction.message.edit(embed=embed, view=view)
+        await interaction.response.defer()
+        await interaction.edit_original_response(embed=embed, view=view)
 
-    view = discord.ui.View()
-    select_race = create_select_menu("Raça", races)
-    select_race.callback = lambda i: asyncio.create_task(select_callback(i, "Raça"))
-    view.add_item(select_race)
+    select_race.callback = select_callback
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-    embed = discord.Embed(title=name, description="Selecione uma raça e uma classe.")
-    embed.add_field(name="Raça", value="Não Selecionada", inline=True)
-    embed.add_field(name="Classe", value="Não Selecionada", inline=True)
-    await interaction.followup.send(embed=embed, view=view)
-
-@bot.tree.command(name='ficha', description='Mostra a ficha do personagem')
+@bot.slash_command(name='ficha', description='Exibe a ficha de um personagem')
 async def ficha(interaction: discord.Interaction):
+    level_emoji = custom_emojis["LEVEL"]
+    HP_emoji = custom_emojis["HP"]
+    race_emoji = custom_emojis["RACE"]
+    class_emoji = custom_emojis["CLASS"]
     player = get_player(interaction.user.id)
     if player:
-        embed = discord.Embed(title="Ficha:")
-        embed.set_author(name=interaction.user.name, icon_url=interaction.user.avatar.url)
-        embed.add_field(name="Nome:", value=player[0], inline=False)
-        embed.add_field(name="Nivel:", value=player[1], inline=False)
-        embed.add_field(name="Vida:", value=player[2], inline=False)
-        embed.add_field(name="Raça:", value=player[3], inline=False)
-        embed.add_field(name="Classe:", value=player[4], inline=False)
-        await interaction.response.send_message(embed=embed)
+        embed = discord.Embed(title=player[0], description="")
+        embed.set_thumbnail(url=interaction.user.avatar.url)
+        embed.add_field(name="", value=f"{level_emoji} **Level:** {player[1]}")
+        embed.add_field(name="", value=f"{HP_emoji } **HP:** {player[2]}", inline=False)
+        embed.add_field(name="", value=f"{race_emoji} **Raça:** {player[3]}", inline=False)
+        embed.add_field(name="", value=f"{class_emoji} **Classe:** {player[4]}", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
-        await interaction.response.send_message('Você não tem uma ficha, crie uma com **/criar**')
+        await interaction.response.send_message('Ficha não encontrada, crie uma com `/create`')
 
-@bot.tree.command(name='apagar', description='Apaga a ficha do personagem')
+@bot.slash_command(name='delete', description='Apaga a ficha de um personagem')
 async def apagar(interaction: discord.Interaction):
-    delete_player(interaction.user.id)
-    await interaction.response.send_message('Sua ficha foi apagada com sucesso.')
+    player = get_player(interaction.user.id)
+    if player:
+        delete_player(interaction.user.id)
+        await interaction.response.send_message('Sua ficha foi apagada com sucesso.', ephemeral=True)
+    else:
+        await interaction.response.send_message("Não há nada para deletar.", ephemeral=True)
+
+@bot.slash_command(name='roll', description='Rola um dado')
+async def roll(
+    interaction: discord.Interaction,
+    dice: str = discord.Option(description="O tipo de dado a ser rolado (ex: 3d20)"),
+    modifier: int = discord.Option(default=0, description="Modificador a ser adicionado ao resultado (apenas números)", required=False)
+    ):
+
+    if not re.match(r'^\d+d\d+$', dice):
+        await interaction.response.send_message('Formato de dado inválido. Use o formato X**d**Y, onde X é o número de dados e Y é o número de faces.')
+        return
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://dicer-api.vercel.app/{dice}+{modifier}") as response:
+            if response.status == 200:
+                result = await response.json()
+                roll_results = result['0']['results']
+                mods = result['0']['mods'][0]
+                embed = discord.Embed (title="Results:")
+                embed.set_thumbnail(url=DICE_url)
+                embed.add_field(name="", value='\n'.join(f'`{r + mods}` ⟵ [{r}] {dice} + {modifier}' if modifier != 0 else f'`[{r}]` ⟵ {dice}' for r in roll_results))
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message('Houve um erro ao rolar o dado.')
 
 bot.run(TOKEN)
