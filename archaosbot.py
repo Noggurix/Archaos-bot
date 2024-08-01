@@ -53,7 +53,8 @@ def add_player(user_id, name, level, hp, race, char_class):
 
 def get_player(user_id):
     result = execute_db(
-        "SELECT name, level, hp, race, class FROM players WHERE user_id = ?", (user_id,)
+        "SELECT name, level, hp, race, class FROM players WHERE user_id = ?", (
+            user_id,)
     )
     return result[0] if result else None
 
@@ -71,7 +72,8 @@ races = {
     "Vampiro": 90,
     "Bruxa": 70,
 }
-classes = {"Guerreiro": 30, "Mago": 10, "Arqueiro": 20, "Ladino": 15, "Paladino": 25}
+classes = {"Guerreiro": 30, "Mago": 10,
+           "Arqueiro": 20, "Ladino": 15, "Paladino": 25}
 
 
 @bot.slash_command(name="create", description="Cria um novo personagem")
@@ -91,7 +93,8 @@ async def criar(interaction: discord.Interaction):
     view = discord.ui.View()
     select_race = discord.ui.Select(
         placeholder="Raça",
-        options=[discord.SelectOption(label=race, value=race) for race in races],
+        options=[discord.SelectOption(label=race, value=race)
+                 for race in races],
         custom_id="race",
     )
     view.add_item(select_race)
@@ -103,7 +106,8 @@ async def criar(interaction: discord.Interaction):
             embed.set_field_at(0, name="Raça", value=race, inline=True)
             select_class = discord.ui.Select(
                 placeholder="Classe",
-                options=[discord.SelectOption(label=cls, value=cls) for cls in classes],
+                options=[discord.SelectOption(
+                    label=cls, value=cls) for cls in classes],
                 custom_id="class",
             )
             select_class.callback = select_callback
@@ -140,19 +144,19 @@ async def ficha(interaction: discord.Interaction):
         embed.add_field(
             name="",
             value=f"{
-                        HP_emoji} **HP:** {player[2]}",
+                HP_emoji} **HP:** {player[2]}",
             inline=False,
         )
         embed.add_field(
             name="",
             value=f"{
-                        race_emoji} **Raça:** {player[3]}",
+                race_emoji} **Raça:** {player[3]}",
             inline=False,
         )
         embed.add_field(
             name="",
             value=f"{
-                        class_emoji} **Classe:** {player[4]}",
+                class_emoji} **Classe:** {player[4]}",
             inline=False,
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -179,7 +183,8 @@ async def apagar(interaction: discord.Interaction):
 @bot.slash_command(name="roll", description="Rola um dado")
 async def roll(
     interaction: discord.Interaction,
-    dice: str = discord.Option(description="O tipo de dado a ser rolado (ex: 3d20+15)"),
+    dice: str = discord.Option(
+        description="O tipo de dado a ser rolado (ex: 3d20+15)"),
 ):
     try:
         async with aiohttp.ClientSession() as session:
@@ -189,7 +194,7 @@ async def roll(
                     embed = discord.Embed(title="Results:")
 
                     for result in results:
-                        roll_info = results["info"]
+                        roll_info = result["info"]
                         roll_results = result["results"]
                         mods = result["mods"]
                         dices_sum_w_mod = result["dicesSumWMod"]
@@ -197,7 +202,7 @@ async def roll(
                         embed.add_field(
                             name="",
                             value=f'\n `({
-                                        dices_sum_w_mod})` **{str(roll_results)[1:-1]}** <- {roll_info} + {"+ ".join(mods)}',
+                                dices_sum_w_mod})` **{str(roll_results)[1:-1]}** <- {roll_info} + {"+ ".join(mods)}',
                         )
 
                     await interaction.response.send_message(embed=embed)
