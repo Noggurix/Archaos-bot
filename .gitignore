@@ -1,3 +1,4 @@
 .env
 *.sqlite
 players.db
+master_ids.json
