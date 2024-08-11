@@ -315,4 +315,28 @@ async def remove_master(interaction: discord.Interaction, user: discord.User):
     else:
         await interaction.response.send_message("Esse usuário não é um mestre.")
 
+
+class ImageModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="Atualizar Imagem do Personagem")
+        self.add_item(discord.ui.InputText(label="Nova URL da Imagem", style=discord.InputTextStyle.short, placeholder="Cole a nova URL da imagem aqui"))
+
+    async def callback(self, interaction: discord.Interaction):
+        player = get_player(interaction.user.id)
+        new_avatar_url = self.children[0].value.strip()
+        # Verifica se o jogador possui uma ficha
+        player = get_player(interaction.user.id)
+        if player:
+            # Atualiza a URL da imagem do personagem
+            add_player(interaction.user.id, player[0], player[1], player[2], player[3], player[4], new_avatar_url)
+            add_sk_points(interaction.user.id, player[5], player[6], player[7], player[8], player[9])
+            await interaction.response.send_message("A imagem do personagem foi atualizada com sucesso.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Você não tem uma ficha para atualizar.", ephemeral=True)
+
+
+@bot.slash_command(name="character_image", description="Muda a foto de um personagem existente")
+async def change_img(interaction: discord.Interaction):
+    await interaction.response.send_modal(ImageModal())
+    
 bot.run(TOKEN)
