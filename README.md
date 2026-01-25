@@ -1,2 +1,2 @@
-# Archaos-bot
- A discord bot that manages RPG sessions.
+# Archaos Commander Bot
+ A bot made to help in the management of RPG sessions on discord.
