@@ -1,0 +1,7 @@
+.env
+*.sqlite
+characters.db
+master_ids.json
+discloud.config
+emojis.json
+__pycache__
